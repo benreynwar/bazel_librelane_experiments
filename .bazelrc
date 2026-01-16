@@ -1,0 +1,3 @@
+build --action_env=PATH
+build --action_env=PDK_ROOT
+build --action_env=PDK
