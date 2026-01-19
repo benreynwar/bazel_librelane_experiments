@@ -569,7 +569,7 @@ def run_librelane_step(
 
     return state_out
 
-def single_step_impl(ctx, step_id, extra_config = {}):
+def single_step_impl(ctx, step_id, extra_config = {}, extra_inputs = []):
     """Run a step that updates def/odb files.
 
     This is a convenience wrapper for the common case of placement/routing
@@ -579,6 +579,7 @@ def single_step_impl(ctx, step_id, extra_config = {}):
         ctx: Rule context (must have 'src' attribute with LibrelaneInfo)
         step_id: Librelane step ID
         extra_config: Additional config entries to merge
+        extra_inputs: Additional input files (e.g., config files)
 
     Returns:
         List of providers [DefaultInfo, LibrelaneInfo]
@@ -591,7 +592,7 @@ def single_step_impl(ctx, step_id, extra_config = {}):
     odb_out = ctx.actions.declare_file(ctx.label.name + "/" + top + ".odb")
 
     # Get input files
-    inputs = get_input_files(src_info)
+    inputs = get_input_files(src_info) + extra_inputs
 
     # Create config
     config = create_librelane_config(src_info)

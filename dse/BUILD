@@ -44,6 +44,7 @@ librelane_hard_macro(
     verilog_files = [":Adder32_verilog"],
     top = "Adder32_verilog",
     pdk = ":sky130hd",
+    pin_order_cfg = "adder_pins.cfg",
 )
 
 generate_verilog_rule(
@@ -58,6 +59,7 @@ librelane_hard_macro(
     verilog_files = [":Adder33_verilog"],
     top = "Adder33_verilog",
     pdk = ":sky130hd",
+    pin_order_cfg = "adder_pins.cfg",
 )
 
 # ============================================================================
@@ -77,9 +79,11 @@ librelane_full_flow(
     top = "FourInputAdder_verilog",
     pdk = ":sky130hd",
     clock_period = "10.0",
-    core_utilization = "20",
+    die_area = "0 0 300 340",  # Sized to fit macros: 2x Adder32 (109x120) on top, 1x Adder33 (111x122) on bottom
     macros = [
         ":Adder32_lef",
         ":Adder33_lef",
     ],
+    pin_order_cfg = "four_input_adder_pins.cfg",
+    macro_placement_cfg = "four_input_adder_macros.cfg",
 )

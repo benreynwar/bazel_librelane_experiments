@@ -23,10 +23,11 @@ def _floorplan_impl(ctx):
     # Create config with floorplan settings
     config = create_librelane_config(src_info)
     if ctx.attr.die_area:
-        config["DIE_AREA"] = ctx.attr.die_area
+        config["FP_SIZING"] = "absolute"
+        config["DIE_AREA"] = [float(x) for x in ctx.attr.die_area.split(" ")]
     if ctx.attr.core_area:
-        config["CORE_AREA"] = ctx.attr.core_area
-    if ctx.attr.core_utilization:
+        config["CORE_AREA"] = [float(x) for x in ctx.attr.core_area.split(" ")]
+    if ctx.attr.core_utilization and not ctx.attr.die_area:
         config["FP_CORE_UTIL"] = int(ctx.attr.core_utilization)
 
     # Run floorplan

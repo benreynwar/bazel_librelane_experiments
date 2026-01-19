@@ -5,7 +5,9 @@ load(":synthesis.bzl", "librelane_synthesis")
 load(":floorplan.bzl", "librelane_floorplan")
 load(":place.bzl",
     "librelane_macro_placement",
+    "librelane_manual_macro_placement",
     "librelane_io_placement",
+    "librelane_custom_io_placement",
     "librelane_global_placement",
     "librelane_detailed_placement",
     "librelane_cts",
@@ -31,7 +33,10 @@ def librelane_full_flow(
     clock_port = "clock",
     core_utilization = "40",
     target_density = "0.5",
-    macros = []):
+    die_area = None,
+    macros = [],
+    pin_order_cfg = None,
+    macro_placement_cfg = None):
     """Flow from Verilog through detailed routing and STA.
 
     Args:
@@ -41,9 +46,12 @@ def librelane_full_flow(
         pdk: PDK target
         clock_period: Clock period in ns
         clock_port: Clock port name
-        core_utilization: Target core utilization (0-100)
+        core_utilization: Target core utilization (0-100), ignored if die_area specified
         target_density: Target placement density (0.0-1.0)
+        die_area: Explicit die area as "x0 y0 x1 y1" in microns
         macros: List of hard macro targets (for hierarchical designs)
+        pin_order_cfg: Pin order configuration file for custom IO placement
+        macro_placement_cfg: Macro placement configuration file (instance X Y orientation)
     """
 
     # Init - package inputs
@@ -64,17 +72,31 @@ def librelane_full_flow(
     )
 
     # Floorplan
-    librelane_floorplan(
-        name = name + "_floorplan",
-        src = ":" + name + "_synth",
-        core_utilization = core_utilization,
-    )
+    if die_area:
+        librelane_floorplan(
+            name = name + "_floorplan",
+            src = ":" + name + "_synth",
+            die_area = die_area,
+        )
+    else:
+        librelane_floorplan(
+            name = name + "_floorplan",
+            src = ":" + name + "_synth",
+            core_utilization = core_utilization,
+        )
 
     # Placement
-    librelane_io_placement(
-        name = name + "_io",
-        src = ":" + name + "_floorplan",
-    )
+    if pin_order_cfg:
+        librelane_custom_io_placement(
+            name = name + "_io",
+            src = ":" + name + "_floorplan",
+            pin_order_cfg = pin_order_cfg,
+        )
+    else:
+        librelane_io_placement(
+            name = name + "_io",
+            src = ":" + name + "_floorplan",
+        )
 
     librelane_global_placement(
         name = name + "_gpl",
@@ -85,10 +107,17 @@ def librelane_full_flow(
     # Macro placement (for hierarchical designs with hard macros)
     # Must come after global placement to have initial macro positions
     if macros:
-        librelane_macro_placement(
-            name = name + "_mpl",
-            src = ":" + name + "_gpl",
-        )
+        if macro_placement_cfg:
+            librelane_manual_macro_placement(
+                name = name + "_mpl",
+                src = ":" + name + "_gpl",
+                macro_placement_cfg = macro_placement_cfg,
+            )
+        else:
+            librelane_macro_placement(
+                name = name + "_mpl",
+                src = ":" + name + "_gpl",
+            )
         dpl_src = ":" + name + "_mpl"
     else:
         dpl_src = ":" + name + "_gpl"
@@ -137,7 +166,10 @@ def librelane_hard_macro(
     clock_port = "clock",
     core_utilization = "40",
     target_density = "0.5",
-    macros = []):
+    die_area = None,
+    macros = [],
+    pin_order_cfg = None,
+    macro_placement_cfg = None):
     """Complete flow from Verilog to hard macro (GDS + LEF).
 
     Args:
@@ -147,9 +179,12 @@ def librelane_hard_macro(
         pdk: PDK target
         clock_period: Clock period in ns
         clock_port: Clock port name
-        core_utilization: Target core utilization (0-100)
+        core_utilization: Target core utilization (0-100), ignored if die_area specified
         target_density: Target placement density (0.0-1.0)
+        die_area: Explicit die area as "x0 y0 x1 y1" in microns
         macros: List of hard macro targets (for hierarchical designs)
+        pin_order_cfg: Pin order configuration file for custom IO placement
+        macro_placement_cfg: Macro placement configuration file (instance X Y orientation)
     """
 
     # Run the full flow first
@@ -162,7 +197,10 @@ def librelane_hard_macro(
         clock_port = clock_port,
         core_utilization = core_utilization,
         target_density = target_density,
+        die_area = die_area,
         macros = macros,
+        pin_order_cfg = pin_order_cfg,
+        macro_placement_cfg = macro_placement_cfg,
     )
 
     # Fill insertion

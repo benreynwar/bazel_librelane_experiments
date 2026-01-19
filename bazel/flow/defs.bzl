@@ -7,6 +7,9 @@ load(":synthesis.bzl", _librelane_synthesis = "librelane_synthesis")
 load(":floorplan.bzl", _librelane_floorplan = "librelane_floorplan")
 load(":place.bzl",
     _librelane_io_placement = "librelane_io_placement",
+    _librelane_custom_io_placement = "librelane_custom_io_placement",
+    _librelane_macro_placement = "librelane_macro_placement",
+    _librelane_manual_macro_placement = "librelane_manual_macro_placement",
     _librelane_global_placement = "librelane_global_placement",
     _librelane_detailed_placement = "librelane_detailed_placement",
     _librelane_cts = "librelane_cts",
@@ -48,6 +51,9 @@ librelane_floorplan = _librelane_floorplan
 
 # Placement
 librelane_io_placement = _librelane_io_placement
+librelane_custom_io_placement = _librelane_custom_io_placement
+librelane_macro_placement = _librelane_macro_placement
+librelane_manual_macro_placement = _librelane_manual_macro_placement
 librelane_global_placement = _librelane_global_placement
 librelane_detailed_placement = _librelane_detailed_placement
 librelane_cts = _librelane_cts

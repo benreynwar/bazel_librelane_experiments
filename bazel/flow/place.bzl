@@ -10,6 +10,13 @@ def _macro_placement_impl(ctx):
     }
     return single_step_impl(ctx, "OpenROAD.BasicMacroPlacement", extra)
 
+def _manual_macro_placement_impl(ctx):
+    extra = {
+        "MACRO_PLACEMENT_CFG": ctx.file.macro_placement_cfg.path,
+    }
+    extra_inputs = [ctx.file.macro_placement_cfg]
+    return single_step_impl(ctx, "Odb.ManualMacroPlacement", extra, extra_inputs)
+
 def _cut_rows_impl(ctx):
     return single_step_impl(ctx, "OpenROAD.CutRows")
 
@@ -27,6 +34,13 @@ def _global_placement_skip_io_impl(ctx):
 
 def _io_placement_impl(ctx):
     return single_step_impl(ctx, "OpenROAD.IOPlacement")
+
+def _custom_io_placement_impl(ctx):
+    extra = {
+        "FP_PIN_ORDER_CFG": ctx.file.pin_order_cfg.path,
+    }
+    extra_inputs = [ctx.file.pin_order_cfg]
+    return single_step_impl(ctx, "Odb.CustomIOPlacement", extra, extra_inputs)
 
 def _global_placement_impl(ctx):
     extra = {}
@@ -61,9 +75,23 @@ _macro_placement_attrs = dict(FLOW_ATTRS, **{
     ),
 })
 
+_manual_macro_placement_attrs = dict(FLOW_ATTRS, **{
+    "macro_placement_cfg": attr.label(
+        doc = "Macro placement configuration file (instance X Y orientation)",
+        allow_single_file = True,
+        mandatory = True,
+    ),
+})
+
 librelane_macro_placement = rule(
     implementation = _macro_placement_impl,
     attrs = _macro_placement_attrs,
+    provides = [DefaultInfo, LibrelaneInfo],
+)
+
+librelane_manual_macro_placement = rule(
+    implementation = _manual_macro_placement_impl,
+    attrs = _manual_macro_placement_attrs,
     provides = [DefaultInfo, LibrelaneInfo],
 )
 
@@ -94,6 +122,20 @@ librelane_global_placement_skip_io = rule(
 librelane_io_placement = rule(
     implementation = _io_placement_impl,
     attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo],
+)
+
+_custom_io_attrs = dict(FLOW_ATTRS, **{
+    "pin_order_cfg": attr.label(
+        doc = "Pin order configuration file for custom IO placement",
+        allow_single_file = True,
+        mandatory = True,
+    ),
+})
+
+librelane_custom_io_placement = rule(
+    implementation = _custom_io_placement_impl,
+    attrs = _custom_io_attrs,
     provides = [DefaultInfo, LibrelaneInfo],
 )
 
