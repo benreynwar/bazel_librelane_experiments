@@ -1,35 +1,24 @@
-# Static Timing Analysis rules
+# Hard macro generation rules (Fill, GDS, LEF) and Magic steps
 
-load(":providers.bzl", "LibrelaneInfo")
+load(":providers.bzl", "LibrelaneInfo", "MacroInfo")
 load(":common.bzl",
-    "single_step_impl",
-    "FLOW_ATTRS",
     "create_librelane_config",
     "run_librelane_step",
+    "single_step_impl",
     "get_input_files",
+    "FLOW_ATTRS",
 )
 
-def _check_sdc_files_impl(ctx):
-    return single_step_impl(ctx, "OpenROAD.CheckSDCFiles")
+def _fill_impl(ctx):
+    return single_step_impl(ctx, "OpenROAD.FillInsertion")
 
-def _check_macro_instances_impl(ctx):
-    return single_step_impl(ctx, "OpenROAD.CheckMacroInstances")
-
-def _sta_pre_pnr_impl(ctx):
-    return single_step_impl(ctx, "OpenROAD.STAPrePNR")
-
-def _sta_mid_pnr_impl(ctx):
-    return single_step_impl(ctx, "OpenROAD.STAMidPNR")
-
-def _rcx_impl(ctx):
-    """Parasitic extraction - produces SPEF for all corners (passes through def/odb)."""
+def _gds_impl(ctx):
+    """Generate GDSII layout."""
     src_info = ctx.attr.src[LibrelaneInfo]
     top = src_info.top
 
-    # RCX produces SPEF for each corner (nom, min, max)
-    spef_nom = ctx.actions.declare_file(ctx.label.name + "/nom/" + top + ".nom.spef")
-    spef_min = ctx.actions.declare_file(ctx.label.name + "/min/" + top + ".min.spef")
-    spef_max = ctx.actions.declare_file(ctx.label.name + "/max/" + top + ".max.spef")
+    # Declare GDS output in target directory
+    gds = ctx.actions.declare_file(ctx.label.name + "/" + top + ".gds")
 
     # Get input files
     inputs = get_input_files(src_info)
@@ -37,18 +26,18 @@ def _rcx_impl(ctx):
     # Create config
     config = create_librelane_config(src_info)
 
-    # Run RCX
+    # Run GDS generation
     state_out = run_librelane_step(
         ctx = ctx,
-        step_id = "OpenROAD.RCX",
-        outputs = [spef_nom, spef_min, spef_max],
+        step_id = "Magic.StreamOut",
+        outputs = [gds],
         config_content = json.encode(config),
         inputs = inputs,
         src_info = src_info,
     )
 
     return [
-        DefaultInfo(files = depset([spef_nom, spef_min, spef_max])),
+        DefaultInfo(files = depset([gds])),
         LibrelaneInfo(
             top = top,
             clock_port = src_info.clock_port,
@@ -61,9 +50,9 @@ def _rcx_impl(ctx):
             odb = src_info.odb,
             sdc = src_info.sdc,
             sdf = src_info.sdf,
-            spef = {"nom_*": spef_nom, "min_*": spef_min, "max_*": spef_max},
+            spef = src_info.spef,
             lib = src_info.lib,
-            gds = src_info.gds,
+            gds = gds,
             mag_gds = src_info.mag_gds,
             klayout_gds = src_info.klayout_gds,
             lef = src_info.lef,
@@ -76,10 +65,13 @@ def _rcx_impl(ctx):
         ),
     ]
 
-def _sta_post_pnr_impl(ctx):
-    """Post-PnR timing analysis - reporting only, no file outputs."""
+def _lef_impl(ctx):
+    """Generate LEF abstract and provide MacroInfo for hierarchical use."""
     src_info = ctx.attr.src[LibrelaneInfo]
     top = src_info.top
+
+    # Declare LEF output in target directory
+    lef = ctx.actions.declare_file(ctx.label.name + "/" + top + ".lef")
 
     # Get input files
     inputs = get_input_files(src_info)
@@ -87,18 +79,26 @@ def _sta_post_pnr_impl(ctx):
     # Create config
     config = create_librelane_config(src_info)
 
-    # Run STA - no outputs, just updates metrics in state_out
+    # Run LEF generation
     state_out = run_librelane_step(
         ctx = ctx,
-        step_id = "OpenROAD.STAPostPNR",
-        outputs = [],
+        step_id = "Magic.WriteLEF",
+        outputs = [lef],
         config_content = json.encode(config),
         inputs = inputs,
         src_info = src_info,
     )
 
+    # Create MacroInfo for hierarchical designs
+    macro_info = MacroInfo(
+        name = top,
+        lef = lef,
+        gds = src_info.gds,
+        netlist = src_info.nl,
+    )
+
     return [
-        DefaultInfo(files = depset([state_out])),
+        DefaultInfo(files = depset([lef])),
         LibrelaneInfo(
             top = top,
             clock_port = src_info.clock_port,
@@ -116,7 +116,7 @@ def _sta_post_pnr_impl(ctx):
             gds = src_info.gds,
             mag_gds = src_info.mag_gds,
             klayout_gds = src_info.klayout_gds,
-            lef = src_info.lef,
+            lef = lef,
             mag = src_info.mag,
             spice = src_info.spice,
             json_h = src_info.json_h,
@@ -124,49 +124,41 @@ def _sta_post_pnr_impl(ctx):
             macros = src_info.macros,
             **{"def": getattr(src_info, "def", None)}
         ),
+        macro_info,
     ]
 
-def _ir_drop_report_impl(ctx):
-    return single_step_impl(ctx, "OpenROAD.IRDropReport")
+def _drc_impl(ctx):
+    return single_step_impl(ctx, "Magic.DRC")
 
-librelane_check_sdc_files = rule(
-    implementation = _check_sdc_files_impl,
+def _spice_extraction_impl(ctx):
+    return single_step_impl(ctx, "Magic.SpiceExtraction")
+
+librelane_fill = rule(
+    implementation = _fill_impl,
     attrs = FLOW_ATTRS,
     provides = [DefaultInfo, LibrelaneInfo],
 )
 
-librelane_check_macro_instances = rule(
-    implementation = _check_macro_instances_impl,
+librelane_gds = rule(
+    implementation = _gds_impl,
     attrs = FLOW_ATTRS,
     provides = [DefaultInfo, LibrelaneInfo],
 )
 
-librelane_sta_pre_pnr = rule(
-    implementation = _sta_pre_pnr_impl,
+librelane_lef = rule(
+    implementation = _lef_impl,
+    attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo, MacroInfo],
+)
+
+librelane_magic_drc = rule(
+    implementation = _drc_impl,
     attrs = FLOW_ATTRS,
     provides = [DefaultInfo, LibrelaneInfo],
 )
 
-librelane_sta_mid_pnr = rule(
-    implementation = _sta_mid_pnr_impl,
-    attrs = FLOW_ATTRS,
-    provides = [DefaultInfo, LibrelaneInfo],
-)
-
-librelane_rcx = rule(
-    implementation = _rcx_impl,
-    attrs = FLOW_ATTRS,
-    provides = [DefaultInfo, LibrelaneInfo],
-)
-
-librelane_sta_post_pnr = rule(
-    implementation = _sta_post_pnr_impl,
-    attrs = FLOW_ATTRS,
-    provides = [DefaultInfo, LibrelaneInfo],
-)
-
-librelane_ir_drop_report = rule(
-    implementation = _ir_drop_report_impl,
+librelane_spice_extraction = rule(
+    implementation = _spice_extraction_impl,
     attrs = FLOW_ATTRS,
     provides = [DefaultInfo, LibrelaneInfo],
 )

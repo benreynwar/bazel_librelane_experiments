@@ -1,2 +1,3 @@
-# Empty BUILD file for flow directory
-# Rules are loaded via .bzl files
+# BUILD file for flow directory
+
+exports_files(["dump_pdk_config.py"])

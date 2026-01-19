@@ -39,7 +39,7 @@ class Adder(params: AdderParams) extends Module {
   val io = IO(new Bundle {
     val a = Input(UInt(params.width.W))
     val b = Input(UInt(params.width.W))
-    val sum = Output(UInt(params.width.W))
+    val sum = Output(UInt((params.width + 1).W))
   })
 
   if (params.registerInputs && params.registerOutput) {

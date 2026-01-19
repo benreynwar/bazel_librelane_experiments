@@ -22,3 +22,11 @@ chisel_binary(
     deps = DEPS,
     visibility = ["//visibility:public"],
 )
+
+chisel_binary(
+    name = "four_input_adder",
+    srcs = [":sources"],
+    main_class = "hwexample.FourInputAdderMain",
+    deps = DEPS,
+    visibility = ["//visibility:public"],
+)

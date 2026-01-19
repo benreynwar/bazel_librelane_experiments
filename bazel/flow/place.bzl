@@ -1,123 +1,128 @@
-# Placement rules - one step at a time
+# Placement rules
 
-load(":providers.bzl", "LibrelaneInfo", "PdkInfo")
+load(":providers.bzl", "LibrelaneInfo")
+load(":common.bzl", "single_step_impl", "FLOW_ATTRS")
 
-def _single_step_impl(ctx, step_id, step_slug):
-    src_info = ctx.attr.src[LibrelaneInfo]
-    pdk_info = ctx.attr.src[PdkInfo]
-
-    step_dir = ctx.actions.declare_directory(ctx.label.name)
-
-    # Netlist is copied forward from previous step
-    netlist_path = src_info.step_dir.path + "/" + src_info.top + ".nl.v"
-
-    config_dict = {
-        "DESIGN_NAME": src_info.top,
-        "VERILOG_FILES": [netlist_path],
-        "CLOCK_PORT": src_info.clock_port,
-        "CLOCK_PERIOD": float(src_info.clock_period),
+def _macro_placement_impl(ctx):
+    extra = {
+        "PL_MACRO_HALO": ctx.attr.macro_halo,
+        "PL_MACRO_CHANNEL": ctx.attr.macro_channel,
     }
-    if hasattr(ctx.attr, "target_density") and ctx.attr.target_density:
-        config_dict["PL_TARGET_DENSITY_PCT"] = int(float(ctx.attr.target_density) * 100)
+    return single_step_impl(ctx, "OpenROAD.BasicMacroPlacement", extra)
 
-    config = ctx.actions.declare_file(ctx.label.name + "_config.json")
-    ctx.actions.write(output = config, content = json.encode(config_dict))
+def _cut_rows_impl(ctx):
+    return single_step_impl(ctx, "OpenROAD.CutRows")
 
-    ctx.actions.run_shell(
-        outputs = [step_dir],
-        inputs = [src_info.step_dir, config],
-        command = """
-            mkdir -p {output}
+def _tap_endcap_insertion_impl(ctx):
+    return single_step_impl(ctx, "OpenROAD.TapEndcapInsertion")
 
-            # Replace placeholder with actual input path
-            sed 's|__PREV_STEP__|{prev_step}|g' {state_in} > {output}/input_state.json
+def _generate_pdn_impl(ctx):
+    return single_step_impl(ctx, "OpenROAD.GeneratePDN")
 
-            librelane \
-                --manual-pdk \
-                --pdk-root "$PDK_ROOT" \
-                --pdk {pdk} \
-                --scl {scl} \
-                --design-dir {output} \
-                --run-tag bazel \
-                -i {output}/input_state.json \
-                --only {step_id} \
-                {config}
-
-            # Copy design files from prev_step first (will be overwritten by new outputs)
-            cp {prev_step}/*.nl.v {prev_step}/*.pnl.v {prev_step}/*.def {prev_step}/*.odb {prev_step}/*.sdc {output}/ 2>/dev/null || true
-
-            # Move new outputs (overwrites copied files where step produced new versions)
-            mv {output}/runs/bazel/01-{step_slug}/* {output}/
-            rm -r {output}/runs
-
-            # Rewrite state to use placeholder (strips all path prefixes)
-            sed 's|"[^"]*runs/bazel/01-{step_slug}/|"__PREV_STEP__/|g; s|{prev_step}/|__PREV_STEP__/|g' {output}/state_out.json > {output}/state_out.tmp && mv {output}/state_out.tmp {output}/state_out.json
-        """.format(
-            pdk = pdk_info.name,
-            scl = pdk_info.scl,
-            config = config.path,
-            state_in = src_info.step_dir.path + "/state_out.json",
-            prev_step = src_info.step_dir.path,
-            output = step_dir.path,
-            step_id = step_id,
-            step_slug = step_slug,
-        ),
-        use_default_shell_env = True,
-    )
-
-    return [
-        DefaultInfo(files = depset([step_dir])),
-        LibrelaneInfo(
-            step = step_id,
-            step_dir = step_dir,
-            netlist_path = step_dir.path + "/" + src_info.top + ".nl.v",
-            top = src_info.top,
-            clock_port = src_info.clock_port,
-            clock_period = src_info.clock_period,
-        ),
-        pdk_info,
-    ]
+def _global_placement_skip_io_impl(ctx):
+    extra = {}
+    if ctx.attr.target_density:
+        extra["PL_TARGET_DENSITY_PCT"] = int(float(ctx.attr.target_density) * 100)
+    return single_step_impl(ctx, "OpenROAD.GlobalPlacementSkipIO", extra)
 
 def _io_placement_impl(ctx):
-    return _single_step_impl(ctx, "OpenROAD.IOPlacement", "openroad-ioplacement")
+    return single_step_impl(ctx, "OpenROAD.IOPlacement")
 
 def _global_placement_impl(ctx):
-    return _single_step_impl(ctx, "OpenROAD.GlobalPlacement", "openroad-globalplacement")
+    extra = {}
+    if ctx.attr.target_density:
+        extra["PL_TARGET_DENSITY_PCT"] = int(float(ctx.attr.target_density) * 100)
+    return single_step_impl(ctx, "OpenROAD.GlobalPlacement", extra)
+
+def _repair_design_post_gpl_impl(ctx):
+    return single_step_impl(ctx, "OpenROAD.RepairDesignPostGPL")
 
 def _detailed_placement_impl(ctx):
-    return _single_step_impl(ctx, "OpenROAD.DetailedPlacement", "openroad-detailedplacement")
+    return single_step_impl(ctx, "OpenROAD.DetailedPlacement")
 
 def _cts_impl(ctx):
-    return _single_step_impl(ctx, "OpenROAD.CTS", "openroad-cts")
+    return single_step_impl(ctx, "OpenROAD.CTS")
 
-_common_attrs = {
-    "src": attr.label(
-        mandatory = True,
-        providers = [LibrelaneInfo, PdkInfo],
+def _resizer_timing_post_cts_impl(ctx):
+    return single_step_impl(ctx, "OpenROAD.ResizerTimingPostCTS")
+
+_gpl_attrs = dict(FLOW_ATTRS, **{
+    "target_density": attr.string(doc = "Target placement density (0.0-1.0)"),
+})
+
+_macro_placement_attrs = dict(FLOW_ATTRS, **{
+    "macro_halo": attr.string(
+        doc = "Macro placement halo '{Horizontal} {Vertical}' in µm",
+        default = "10 10",
     ),
-    "target_density": attr.string(),
-}
+    "macro_channel": attr.string(
+        doc = "Channel widths between macros '{Horizontal} {Vertical}' in µm",
+        default = "20 20",
+    ),
+})
+
+librelane_macro_placement = rule(
+    implementation = _macro_placement_impl,
+    attrs = _macro_placement_attrs,
+    provides = [DefaultInfo, LibrelaneInfo],
+)
+
+librelane_cut_rows = rule(
+    implementation = _cut_rows_impl,
+    attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo],
+)
+
+librelane_tap_endcap_insertion = rule(
+    implementation = _tap_endcap_insertion_impl,
+    attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo],
+)
+
+librelane_generate_pdn = rule(
+    implementation = _generate_pdn_impl,
+    attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo],
+)
+
+librelane_global_placement_skip_io = rule(
+    implementation = _global_placement_skip_io_impl,
+    attrs = _gpl_attrs,
+    provides = [DefaultInfo, LibrelaneInfo],
+)
 
 librelane_io_placement = rule(
     implementation = _io_placement_impl,
-    attrs = _common_attrs,
-    provides = [DefaultInfo, LibrelaneInfo, PdkInfo],
+    attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo],
 )
 
 librelane_global_placement = rule(
     implementation = _global_placement_impl,
-    attrs = _common_attrs,
-    provides = [DefaultInfo, LibrelaneInfo, PdkInfo],
+    attrs = _gpl_attrs,
+    provides = [DefaultInfo, LibrelaneInfo],
+)
+
+librelane_repair_design_post_gpl = rule(
+    implementation = _repair_design_post_gpl_impl,
+    attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo],
 )
 
 librelane_detailed_placement = rule(
     implementation = _detailed_placement_impl,
-    attrs = _common_attrs,
-    provides = [DefaultInfo, LibrelaneInfo, PdkInfo],
+    attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo],
 )
 
 librelane_cts = rule(
     implementation = _cts_impl,
-    attrs = _common_attrs,
-    provides = [DefaultInfo, LibrelaneInfo, PdkInfo],
+    attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo],
+)
+
+librelane_resizer_timing_post_cts = rule(
+    implementation = _resizer_timing_post_cts_impl,
+    attrs = FLOW_ATTRS,
+    provides = [DefaultInfo, LibrelaneInfo],
 )

@@ -1,95 +1,82 @@
-# Floorplan rule wrapping librelane OpenROAD.Floorplan step
+# Floorplan rule - creates initial placement area
 
-load(":providers.bzl", "LibrelaneInfo", "PdkInfo")
+load(":providers.bzl", "LibrelaneInfo")
+load(":common.bzl",
+    "create_librelane_config",
+    "run_librelane_step",
+    "get_input_files",
+    "FLOW_ATTRS",
+)
 
 def _floorplan_impl(ctx):
+    """Create floorplan with die area and pin placement."""
     src_info = ctx.attr.src[LibrelaneInfo]
-    pdk_info = ctx.attr.src[PdkInfo]
+    top = src_info.top
 
-    step_dir = ctx.actions.declare_directory(ctx.label.name + "_floorplan")
+    # Declare outputs in target directory (librelane writes elsewhere, we copy)
+    def_out = ctx.actions.declare_file(ctx.label.name + "/" + top + ".def")
+    odb_out = ctx.actions.declare_file(ctx.label.name + "/" + top + ".odb")
 
-    # Build config with floorplan settings
-    config_dict = {
-        "DESIGN_NAME": src_info.top,
-        "VERILOG_FILES": [src_info.step_dir.path + "/01-yosys-synthesis/" + src_info.top + ".nl.v"],
-        "CLOCK_PORT": src_info.clock_port,
-        "CLOCK_PERIOD": float(src_info.clock_period),
-    }
+    # Get input files
+    inputs = get_input_files(src_info)
+
+    # Create config with floorplan settings
+    config = create_librelane_config(src_info)
     if ctx.attr.die_area:
-        config_dict["DIE_AREA"] = ctx.attr.die_area
+        config["DIE_AREA"] = ctx.attr.die_area
     if ctx.attr.core_area:
-        config_dict["CORE_AREA"] = ctx.attr.core_area
+        config["CORE_AREA"] = ctx.attr.core_area
     if ctx.attr.core_utilization:
-        config_dict["FP_CORE_UTIL"] = int(ctx.attr.core_utilization)
+        config["FP_CORE_UTIL"] = int(ctx.attr.core_utilization)
 
-    config_content = json.encode(config_dict)
-
-    config = ctx.actions.declare_file(ctx.label.name + "_config.json")
-    ctx.actions.write(output = config, content = config_content)
-
-    ctx.actions.run_shell(
-        outputs = [step_dir],
-        inputs = [src_info.step_dir, config],
-        command = """
-            mkdir -p {output}
-
-            # Replace placeholder with actual input path
-            sed 's|__PREV_STEP__|{prev_step}|g' {state_in} > {output}/input_state.json
-
-            librelane \
-                --manual-pdk \
-                --pdk-root "$PDK_ROOT" \
-                --pdk {pdk} \
-                --scl {scl} \
-                --design-dir {output} \
-                --run-tag bazel \
-                -i {output}/input_state.json \
-                --only OpenROAD.Floorplan \
-                {config}
-
-            mv {output}/runs/bazel/01-openroad-floorplan/* {output}/
-            rm -r {output}/runs
-
-            # Rewrite state to use placeholder (strips all path prefixes)
-            sed 's|"[^"]*runs/bazel/01-openroad-floorplan/|"__PREV_STEP__/|g; s|{prev_step}/|__PREV_STEP__/|g' {output}/state_out.json > {output}/state_out.tmp && mv {output}/state_out.tmp {output}/state_out.json
-
-            # Copy netlist forward for subsequent steps
-            cp {prev_step}/01-yosys-synthesis/*.nl.v {output}/
-        """.format(
-            pdk = pdk_info.name,
-            scl = pdk_info.scl,
-            config = config.path,
-            state_in = src_info.step_dir.path + "/state_out.json",
-            prev_step = src_info.step_dir.path,
-            output = step_dir.path,
-        ),
-        use_default_shell_env = True,
+    # Run floorplan
+    state_out = run_librelane_step(
+        ctx = ctx,
+        step_id = "OpenROAD.Floorplan",
+        outputs = [def_out, odb_out],
+        config_content = json.encode(config),
+        inputs = inputs,
+        src_info = src_info,
     )
 
     return [
-        DefaultInfo(files = depset([step_dir])),
+        DefaultInfo(files = depset([def_out, odb_out])),
         LibrelaneInfo(
-            step = "OpenROAD.Floorplan",
-            step_dir = step_dir,
-            netlist_path = step_dir.path + "/" + src_info.top + ".nl.v",
-            top = src_info.top,
+            top = top,
             clock_port = src_info.clock_port,
             clock_period = src_info.clock_period,
+            pdk_info = src_info.pdk_info,
+            verilog_files = src_info.verilog_files,
+            state_out = state_out,
+            nl = src_info.nl,
+            pnl = src_info.pnl,
+            odb = odb_out,
+            sdc = src_info.sdc,
+            sdf = src_info.sdf,
+            spef = src_info.spef,
+            lib = src_info.lib,
+            gds = src_info.gds,
+            mag_gds = src_info.mag_gds,
+            klayout_gds = src_info.klayout_gds,
+            lef = src_info.lef,
+            mag = src_info.mag,
+            spice = src_info.spice,
+            json_h = src_info.json_h,
+            vh = src_info.vh,
+            macros = src_info.macros,
+            **{"def": def_out}
         ),
-        pdk_info,
     ]
 
 librelane_floorplan = rule(
     implementation = _floorplan_impl,
-    attrs = {
-        "src": attr.label(
-            doc = "Source stage (synthesis)",
-            mandatory = True,
-            providers = [LibrelaneInfo, PdkInfo],
-        ),
+    attrs = dict(FLOW_ATTRS, **{
         "die_area": attr.string(doc = "Die area as 'x0 y0 x1 y1' in microns"),
         "core_area": attr.string(doc = "Core area as 'x0 y0 x1 y1' in microns"),
-        "core_utilization": attr.string(doc = "Target core utilization (0-100)"),
-    },
-    provides = [DefaultInfo, LibrelaneInfo, PdkInfo],
+        "core_utilization": attr.string(
+            doc = "Target core utilization percentage (0-100)",
+            default = "40",
+        ),
+    }),
+    provides = [DefaultInfo, LibrelaneInfo],
 )
