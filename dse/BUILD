@@ -73,8 +73,23 @@ generate_verilog_rule(
     config = "//configs:four_input_adder.json",
 )
 
+# FourInputAdder with automatic placement
 librelane_full_flow(
-    name = "FourInputAdder",
+    name = "FourInputAdder_auto",
+    verilog_files = [":FourInputAdder_verilog"],
+    top = "FourInputAdder_verilog",
+    pdk = ":sky130hd",
+    clock_period = "10.0",
+    core_utilization = "20",
+    macros = [
+        ":Adder32_lef",
+        ":Adder33_lef",
+    ],
+)
+
+# FourInputAdder with manual pin and macro placement
+librelane_full_flow(
+    name = "FourInputAdder_manual",
     verilog_files = [":FourInputAdder_verilog"],
     top = "FourInputAdder_verilog",
     pdk = ":sky130hd",

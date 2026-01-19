@@ -1,11 +1,28 @@
 # Use librelane's flake via flake-compat
 let
-  librelane-flake = (import (fetchTarball
-    "https://github.com/edolstra/flake-compat/archive/35bb57c0c8d8b62bbfd284272c928ceb64ddbde9.tar.gz"
-  ) { src = builtins.fetchGit {
+  nixpkgs = fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-24.05.tar.gz";
+  bootstrap-pkgs = import nixpkgs {};
+
+  flake-compat = fetchTarball
+    "https://github.com/edolstra/flake-compat/archive/35bb57c0c8d8b62bbfd284272c928ceb64ddbde9.tar.gz";
+
+  # GitHub version with patch for BasicMacroPlacement
+  librelane-src-unpatched = builtins.fetchGit {
     url = "https://github.com/librelane/librelane";
     ref = "main";
-  }; }).defaultNix;
+  };
+
+  # Apply patch to fix BasicMacroPlacement.get_script_path()
+  librelane-src = bootstrap-pkgs.applyPatches {
+    name = "librelane-patched";
+    src = librelane-src-unpatched;
+    patches = [ ./nix/librelane-macro-placement.patch ];
+  };
+
+  # Local version (for development)
+  # librelane-src = /home/ben/Code/librelane;
+
+  librelane-flake = (import flake-compat { src = librelane-src; }).defaultNix;
 
   pkgs = librelane-flake.legacyPackages.${builtins.currentSystem};
   sky130-pdk = import ./nix/sky130.nix;
@@ -19,10 +36,13 @@ pkgs.mkShell {
 
     # EDA tools (from librelane's overlay)
     openroad
+    opensta
     yosys
     magic-vlsi
     verilator
     klayout
+
+    # Use nix-provided librelane (patched)
     python3.pkgs.librelane
 
     # Build tools

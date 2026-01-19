@@ -544,7 +544,7 @@ def run_librelane_step(
         command = """
             set -e
             {merge_metrics_cmd}
-            PYTHONPATH="$LIBRELANE_PYTHONPATH" HOME="{design_dir}" python3 -m librelane.steps run \\
+            HOME="{design_dir}" librelane.steps run \\
                 --manual-pdk \\
                 --pdk-root "$PDK_ROOT" \\
                 --pdk {pdk} \\
